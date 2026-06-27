@@ -1,10 +1,11 @@
 package main
 
 /* references:
+- tutorials: https://go.dev/doc/tutorial/
 - go by example: https://gobyexample.com/
 - tcp server: https://gobyexample.com/tcp-server
 - command line arguments: https://gobyexample.com/command-line-arguments
-
+- https://www.freecodecamp.org/news/how-to-build-a-production-grade-distributed-chatroom-in-go-full-handbook/
 */
 
 import (
@@ -33,9 +34,9 @@ func main() {
 	port_number := handeCommandLineParameters(os.Args)
 	port_string := fmt.Sprintf(":%d", port_number)
 
-	for _, v := range clients_array {
-		v.name = ""
-		v.connection = nil
+	for i := range clients_array {
+		clients_array[i].name = ""
+		clients_array[i].connection = nil
 	}
 
 	listener, err := net.Listen("tcp", port_string)
@@ -53,18 +54,24 @@ func main() {
 		// Accept an incomming request from a client
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Println("Error accepting conn:", err)
+			log.Println("Error accepting connection:", err)
 			continue
 		}
 
+		//log.Println("accepting connection from: ", conn.RemoteAddr().String())
+
 		// Allocate a new entry in the array of clients for the new client
-		// create a new thread to handle the client
-		// 'clients' may be modified by other threads, so it has to be protected with a semaphore
+		// create a new thread(goroutine) to handle the client
+		// 'clients' may be modified by other threads(goroutines), so it has to be protected with a semaphore/mutex
+		// This design actually is lacking against the C10K problem (https://www.youtube.com/watch?v=L0jMBrCEQNQ)
 
 		// Lock so only one goroutine at a time can access clients array
 		clients_mutex.Lock()
+		//log.Println("inside mutex")
 		for _, v := range clients_array {
-			if v.connection != nil { // find and empty slot
+
+			//log.Printf("client %d, name: %s, connection: %p", i, v.name, v.connection)
+			if v.connection == nil { // find and empty slot
 				// allocate the new client there
 				v.connection = &conn
 				log.Println("accepted new connection: ", conn.RemoteAddr().String())
@@ -73,32 +80,45 @@ func main() {
 				// The loop then returns to accepting, so that
 				// multiple connections may be served concurrently.
 				go handleClient(conn)
+
+				//log.Println("break")
+				break
 			}
 		}
 		clients_mutex.Unlock()
+		//log.Println("just got outside of the mutex")
 	}
 }
 
 func handleClient(conn net.Conn) {
 
+	//log.Println("handling connection from: ", conn.RemoteAddr().String())
+
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
-	message, err := reader.ReadString('\n')
-	if err != nil {
-		log.Printf("Read error: %v", err)
-		return
-	}
 
-	ackMsg := strings.ToUpper(strings.TrimSpace(message))
-	response := fmt.Sprintf("ACK: %s\n", ackMsg)
-	_, err = conn.Write([]byte(response))
-	if err != nil {
-		log.Printf("Server write error: %v", err)
+	for {
+		message, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("Read error: %v", err)
+			return
+		}
+
+		log.Printf("Read message: %s", message)
+
+		//ackMsg := strings.ToUpper(strings.TrimSpace(message))
+		//response := fmt.Sprintf("ACK: %s\n", ackMsg)
+		//_, err = conn.Write([]byte(response))
+		//if err != nil {
+		//	log.Printf("Server write error: %v", err)
+		//}
 	}
 }
 
 func handeCommandLineParameters(parameters []string) int {
+
+	// reference: command line arguments: https://gobyexample.com/command-line-arguments
 
 	log.Println("number of parameters passed: ", len(parameters))
 
@@ -123,6 +143,6 @@ func handeCommandLineParameters(parameters []string) int {
 
 func readFirstWord(message string) string {
 	// reference: https://pkg.go.dev/strings#SplitN
-	firstWord := strings.SplitN(message, " ", 2)
+	firstWord := strings.SplitN(strings.TrimSpace(message), " ", 2)
 	return firstWord[0]
 }
