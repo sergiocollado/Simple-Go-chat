@@ -30,7 +30,7 @@ var clients_mutex sync.Mutex
 
 func main() {
 
-	port_number := handeCommandLineParameters()
+	port_number := handeCommandLineParameters(os.Args)
 	port_string := fmt.Sprintf(":%d", port_number)
 
 	for _, v := range clients_array {
@@ -98,20 +98,20 @@ func handleClient(conn net.Conn) {
 	}
 }
 
-func handeCommandLineParameters() int {
+func handeCommandLineParameters(parameters []string) int {
 
-	log.Println("number of parameters passed: ", len(os.Args))
+	log.Println("number of parameters passed: ", len(parameters))
 
-	for i, v := range os.Args {
+	for i, v := range parameters {
 		log.Println("param: ", "[", i, "]: ", v, "\n\r")
 	}
 
-	if len(os.Args) > 2 {
+	if len(parameters) > 2 {
 		log.Println("Error: Too many parameters, the server only needs the port number as parameter")
 		os.Exit(2)
 	}
 
-	port_number, err := strconv.Atoi(os.Args[1])
+	port_number, err := strconv.Atoi(parameters[1])
 	if err != nil {
 		log.Println("Error: the parameter must be a port number")
 		os.Exit(3)
@@ -119,4 +119,10 @@ func handeCommandLineParameters() int {
 	fmt.Println("port number: ", port_number)
 
 	return port_number
+}
+
+func readFirstWord(message string) string {
+	// reference: https://pkg.go.dev/strings#SplitN
+	firstWord := strings.SplitN(message, " ", 2)
+	return firstWord[0]
 }
