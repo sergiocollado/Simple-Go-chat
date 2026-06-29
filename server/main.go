@@ -146,3 +146,28 @@ func readFirstWord(message string) string {
 	firstWord := strings.SplitN(strings.TrimSpace(message), " ", 2)
 	return firstWord[0]
 }
+func trimAllSpace(s string) string {
+	// reference: https://www.danielmorell.com/blog/how-to-trim-whitespace-from-a-string-in-go#trim_duplicate
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func checkJOIN(message string) string {
+	words := strings.SplitN(trimAllSpace(message), " ", 3)
+	if words[0] == "JOIN" {
+		return words[1]
+	} else {
+		return ""
+	}
+}
+
+func checkLEAVE(message string) bool {
+	return "LEAVE" == readFirstWord(message)
+}
+
+func checkWHO(message string) bool {
+	return "WHO" == readFirstWord(message)
+}
+
+func checkHELP(message string) bool {
+	return "HELP" == readFirstWord(message)
+}
