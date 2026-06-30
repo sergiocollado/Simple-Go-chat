@@ -25,6 +25,7 @@ type client struct {
 }
 
 const max_clients int = 50
+const code_version string = "0.1"
 
 var clients_array [max_clients]client
 var clients_mutex sync.Mutex
@@ -68,7 +69,7 @@ func main() {
 		// Lock so only one goroutine at a time can access clients array
 		clients_mutex.Lock()
 		//log.Println("inside mutex")
-		for _, v := range clients_array {
+		for index, v := range clients_array {
 
 			//log.Printf("client %d, name: %s, connection: %p", i, v.name, v.connection)
 			if v.connection == nil { // find and empty slot
@@ -79,7 +80,7 @@ func main() {
 				// Handle the connection in a new goroutine.
 				// The loop then returns to accepting, so that
 				// multiple connections may be served concurrently.
-				go handleClient(conn)
+				go handleClient(index)
 
 				//log.Println("break")
 				break
@@ -90,13 +91,15 @@ func main() {
 	}
 }
 
-func handleClient(conn net.Conn) {
+func handleClient(index int) {
 
 	//log.Println("handling connection from: ", conn.RemoteAddr().String())
 
-	defer conn.Close()
+	connection := *clients_array[index].connection
 
-	reader := bufio.NewReader(conn)
+	defer connection.Close()
+
+	reader := bufio.NewReader(connection)
 
 	for {
 		message, err := reader.ReadString('\n')
@@ -105,14 +108,15 @@ func handleClient(conn net.Conn) {
 			return
 		}
 
-		log.Printf("Read message: %s", message)
-
-		//ackMsg := strings.ToUpper(strings.TrimSpace(message))
-		//response := fmt.Sprintf("ACK: %s\n", ackMsg)
-		//_, err = conn.Write([]byte(response))
-		//if err != nil {
-		//	log.Printf("Server write error: %v", err)
-		//}
+		if checkLEAVE(message) {
+			HandleLEAVE(index)
+			return // this will kill the goroutine
+		} else if !(ifIsCommandExecute(index, message)) {
+			// commands have been executied
+		} else {
+			// HandleBroadcast(index)
+			log.Printf("Read message: %s", message)
+		}
 	}
 }
 
@@ -146,6 +150,7 @@ func readFirstWord(message string) string {
 	firstWord := strings.SplitN(strings.TrimSpace(message), " ", 2)
 	return firstWord[0]
 }
+
 func trimAllSpace(s string) string {
 	// reference: https://www.danielmorell.com/blog/how-to-trim-whitespace-from-a-string-in-go#trim_duplicate
 	return strings.Join(strings.Fields(s), " ")
@@ -170,4 +175,138 @@ func checkWHO(message string) bool {
 
 func checkHELP(message string) bool {
 	return "HELP" == readFirstWord(message)
+}
+
+func checkVERSION(message string) bool {
+	return "VERSION" == readFirstWord(message)
+}
+
+func ifIsCommandExecute(index int, message string) bool {
+	name := checkJOIN(message)
+	if name != "" {
+		HandleJOIN(index, name)
+		return true
+	}
+	if checkWHO(message) {
+		HandleWHO(index)
+		return true
+	}
+	if checkHELP(message) {
+		HandleHELP(index)
+		return true
+	}
+	if checkVERSION(message) {
+		HandleVERSION(index)
+		return true
+	}
+	return false
+}
+
+/* HandleWHO: send out client names in response to the WHO command
+ */
+func HandleWHO(index int) {
+
+	message := ""
+	name := clients_array[index].name
+	conn := *clients_array[index].connection
+
+	for _, v := range clients_array {
+		if v.name != "" && conn != nil {
+			message += fmt.Sprintf("\n%s", name)
+		}
+	}
+
+	_, err := conn.Write([]byte(message))
+	if err != nil {
+		log.Printf("Error when sending the WHO message\n")
+	}
+}
+
+/* HandleJOIN: Add client name in position index in the
+*  array of clients
+ */
+func HandleJOIN(index int, nameToJoin string) {
+
+	message := ""
+	conn := *clients_array[index].connection
+	name := clients_array[index].name
+
+	if index > max_clients || index < 0 {
+		log.Printf("HandleJOIN, incorrect index value: %d", index)
+	}
+
+	// Make sure that client did not already join
+	if name != "" {
+		message = fmt.Sprintf("Already joined as %s", clients_array[index].name)
+		_, err := conn.Write([]byte(message))
+		if err != nil {
+			log.Printf("handleJOIN: server write error: %v", err)
+		}
+		return
+	}
+
+	// we have to block here, in case several clients want to subscribe at the same time
+	clients_mutex.Lock()
+	clients_array[index].name = nameToJoin
+	clients_mutex.Unlock() // release the lock
+
+	// let the other users know about the new user
+	// HandleBroadcast(index, message)
+
+}
+
+/* HandleLEAVE: Remove client form position index in array clients
+ * and close the connection to the client
+ */
+func HandleLEAVE(index int) {
+
+	message := ""
+	conn := *clients_array[index].connection
+	name := clients_array[index].name
+
+	if conn == nil && name == "" {
+		return
+	}
+
+	// we have to block here, in case several clients want to subscribe at the same time
+	clients_mutex.Lock()
+	// conn.Close() // this is done in the go routine defer: defer connection.Close()
+	clients_array[index].name = ""
+	clients_array[index].connection = nil
+	clients_mutex.Unlock() // release the lock
+
+	message = fmt.Sprintf("%s just leaved the chat room\n", name)
+	log.Printf("%s", message)
+	// HandleBroadcast(index, message)
+
+	// kill the go routine
+	// references: https://appliedgo.net/spotlight/how-goroutines-want-to-exit/#:~:text=To%20exit%20a%20goroutine%20using,signal%20the%20goroutine%20to%20exit.
+}
+
+func HandleVERSION(index int) {
+
+	conn := *clients_array[index].connection
+	version := fmt.Sprintf("version: %s", code_version)
+
+	_, err := conn.Write([]byte(version))
+	if err != nil {
+		log.Printf("handleVERSION: server write error: %v", err)
+	}
+}
+
+func HandleHELP(index int) {
+
+	conn := *clients_array[index].connection
+
+	message := "You can use the commands:\n"
+	message += " - JOIN <name> : join to the chat with alias <name>\n"
+	message += " - WHO         : enumerate the chat participands\n"
+	message += " - LEAVE       : leave the chat\n"
+	message += " - VERSION     : get the version of the server\n"
+	message += " - HELP        : list the possible commands\n\n"
+
+	_, err := conn.Write([]byte(message))
+	if err != nil {
+		log.Printf("handleVERSION: server write error: %v", err)
+	}
 }
