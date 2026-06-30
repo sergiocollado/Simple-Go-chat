@@ -59,7 +59,7 @@ func main() {
 			continue
 		}
 
-		//log.Println("accepting connection from: ", conn.RemoteAddr().String())
+		log.Println("accepting connection from: ", conn.RemoteAddr().String())
 
 		// Allocate a new entry in the array of clients for the new client
 		// create a new thread(goroutine) to handle the client
@@ -71,11 +71,12 @@ func main() {
 		//log.Println("inside mutex")
 		for index, v := range clients_array {
 
-			//log.Printf("client %d, name: %s, connection: %p", i, v.name, v.connection)
+			log.Printf("client %d, name: %s, connection: %p", index, v.name, v.connection)
 			if v.connection == nil { // find and empty slot
 				// allocate the new client there
-				v.connection = &conn
+				clients_array[index].connection = &conn
 				log.Println("accepted new connection: ", conn.RemoteAddr().String())
+				log.Printf("connection address: %p\n", v.connection)
 
 				// Handle the connection in a new goroutine.
 				// The loop then returns to accepting, so that
@@ -87,15 +88,16 @@ func main() {
 			}
 		}
 		clients_mutex.Unlock()
-		//log.Println("just got outside of the mutex")
 	}
 }
 
 func handleClient(index int) {
 
-	//log.Println("handling connection from: ", conn.RemoteAddr().String())
+	log.Println("handling connection index: ", index)
 
 	connection := *clients_array[index].connection
+
+	log.Println("handling connection from: ", connection.RemoteAddr().String())
 
 	defer connection.Close()
 
@@ -107,6 +109,8 @@ func handleClient(index int) {
 			log.Printf("Read error: %v", err)
 			return
 		}
+
+		log.Printf("Read message: %s", message)
 
 		if checkLEAVE(message) {
 			HandleLEAVE(index)
@@ -232,15 +236,15 @@ func HandleJOIN(index int, nameToJoin string) {
 	name := clients_array[index].name
 
 	if index > max_clients || index < 0 {
-		log.Printf("HandleJOIN, incorrect index value: %d", index)
+		log.Printf("HandleJOIN, incorrect index value: %d\n", index)
 	}
 
 	// Make sure that client did not already join
 	if name != "" {
-		message = fmt.Sprintf("Already joined as %s", clients_array[index].name)
+		message = fmt.Sprintf("Already joined as %s\n", clients_array[index].name)
 		_, err := conn.Write([]byte(message))
 		if err != nil {
-			log.Printf("handleJOIN: server write error: %v", err)
+			log.Printf("handleJOIN: server write error: %v\n", err)
 		}
 		return
 	}
